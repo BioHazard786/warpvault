@@ -1,0 +1,24 @@
+services:
+  warpvault:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        WARPVAULT_MAX_SECRET_SIZE_MB: ${WARPVAULT_MAX_SECRET_SIZE_MB:-25}
+    container_name: warpvault
+    restart: unless-stopped
+    ports:
+      - "${WARPVAULT_PORT:-8080}:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # In-container path overrides (guaranteed to match the container VOLUME)
+      - WARPVAULT_PORT=8080
+      - WARPVAULT_STORAGE_PATH=/data/storage
+      - WARPVAULT_DB_PATH=/data/warpvault.db
+    volumes:
+      - warpvault_data:/data
+
+volumes:
+  warpvault_data:

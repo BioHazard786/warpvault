@@ -1,0 +1,43 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import AsciiLogo from "@/components/AsciiLogo.astro";
+import SecretVault from "@/components/SecretVault.astro";
+import CliGuide from "@/components/CliGuide.astro";
+---
+
+<Layout title="Warpvault — Zero-Knowledge Secret Sharing" header={true}>
+  <main class="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 flex flex-col gap-8 sm:gap-10">
+    <!-- Hero Section -->
+    <section class="flex flex-col gap-4">
+      <AsciiLogo />
+
+      <p class="text-base sm:text-lg text-muted-foreground leading-relaxed tracking-tight text-balance">
+        Zero-knowledge, end-to-end encrypted secret sharing. Encrypt credentials,
+        API keys, and confidential files directly in your browser. Decryption keys live
+        exclusively in the URL hash fragment and never touch the server.
+      </p>
+    </section>
+
+    <!-- Centerpiece: Secret Creator Card -->
+    <section class="w-full">
+      <SecretVault />
+    </section>
+
+    <!-- Terminal & OpenSSL Piping Guide -->
+    <section class="w-full">
+      <CliGuide />
+    </section>
+
+    <!-- Footer -->
+    <footer class="pt-6 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-muted-foreground">
+      <div class="flex items-center gap-2 font-mono">
+        <span>Open Source (MIT)</span>
+        <span>·</span>
+        <span>Client-Side AES-256-CBC</span>
+      </div>
+      <div>
+        <span>Sibling of <a href="https://github.com/biohazard786/warpstash" target="_blank" class="hover:text-foreground underline underline-offset-2">Warpstash</a></span>
+      </div>
+    </footer>
+  </main>
+</Layout>

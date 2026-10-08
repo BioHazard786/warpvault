@@ -1,0 +1,366 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import {
+  Lock,
+  Flame,
+  KeyRound,
+  Copy,
+  Check,
+  Download,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  ShieldAlert,
+  ArrowLeft,
+  FileText,
+  FileDown,
+} from "@lucide/astro";
+---
+
+<Layout
+  title="Encrypted Secret — Warpvault"
+  description="Client-side decrypted secret protected by Warpvault."
+  header={true}
+>
+  <main class="max-w-2xl w-full mx-auto px-4 sm:px-6 py-10 sm:py-16 flex flex-col items-center justify-center min-h-[calc(100vh-4rem)]">
+    <!-- State 1: Bot Shield / Interstitial Card -->
+    <div
+      id="shield-card"
+      class="w-full rounded-2xl border border-border/70 bg-card/70 backdrop-blur-md p-6 sm:p-8 shadow-2xl flex flex-col items-center text-center relative overflow-hidden"
+    >
+      <div class="absolute -top-20 -left-20 w-44 h-44 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <div class="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-4 shadow-inner">
+        <Lock class="w-7 h-7" />
+      </div>
+
+      <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+        Encrypted Secret Pending
+      </h1>
+      <p class="text-xs sm:text-sm text-muted-foreground mt-1 max-w-sm">
+        Protected against preview crawler bots. This secret is encrypted client-side and can only be decrypted in your browser.
+      </p>
+
+      <!-- Vault ID & Info pill -->
+      <div class="mt-4 flex items-center gap-2 px-3 py-1 rounded-full bg-muted/40 border border-border/50 text-[11px] font-mono text-muted-foreground">
+        <span>Vault ID: <strong id="display-id" class="text-foreground">...</strong></span>
+      </div>
+
+      <!-- Optional Manual Key Input (if hash missing or custom password) -->
+      <div id="manual-key-wrapper" class="hidden w-full max-w-sm mt-5 flex-col gap-1.5 text-left">
+        <label class="text-xs font-medium text-muted-foreground flex items-center gap-1">
+          <KeyRound class="w-3.5 h-3.5 text-emerald-400" />
+          Decryption Key / Passphrase:
+        </label>
+        <input
+          type="password"
+          id="manual-key-input"
+          placeholder="Enter decryption key or passphrase"
+          class="w-full px-3.5 py-2.5 rounded-lg border border-input bg-background/80 text-xs font-mono outline-none focus:border-emerald-500/50"
+        />
+      </div>
+
+      <!-- Reveal Button -->
+      <button
+        type="button"
+        id="reveal-btn"
+        class="mt-6 w-full max-w-sm py-3 px-5 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2 cursor-pointer bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/30 active:scale-[0.99]"
+      >
+        <ShieldCheck class="w-4 h-4" />
+        <span id="reveal-btn-text">Reveal & Decrypt Secret</span>
+      </button>
+
+      <p class="text-[11px] text-muted-foreground/60 mt-4 max-w-xs">
+        ⚠️ If this is a burn-after-reading secret, it will be permanently deleted from the server upon revealing.
+      </p>
+    </div>
+
+    <!-- State 2: Decrypted Content Card -->
+    <div
+      id="content-card"
+      class="hidden w-full rounded-2xl border border-border/70 bg-card/80 backdrop-blur-md p-6 sm:p-8 shadow-2xl flex flex-col gap-4 relative"
+    >
+      <!-- Header Banner with Burn status -->
+      <div class="flex items-center justify-between border-b border-border/40 pb-4">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+            <ShieldCheck class="w-4 h-4" />
+          </div>
+          <div>
+            <h2 class="text-sm font-semibold text-foreground">Secret Decrypted</h2>
+            <span id="burn-status-badge" class="text-[11px] text-red-400 flex items-center gap-1 font-medium">
+              <Flame class="w-3 h-3" />
+              Burned from server. It will not exist if you reload.
+            </span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            id="toggle-visibility-btn"
+            class="p-2 rounded-lg border border-border/50 bg-muted/30 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+            title="Toggle visibility"
+          >
+            <Eye class="w-4 h-4" id="eye-show" />
+            <EyeOff class="w-4 h-4 hidden" id="eye-hide" />
+          </button>
+          <button
+            type="button"
+            id="copy-secret-btn"
+            class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Copy class="w-3.5 h-3.5" id="copy-secret-icon" />
+            <Check class="w-3.5 h-3.5 hidden" id="copy-secret-check" />
+            <span id="copy-secret-text">Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Text Payload View -->
+      <div id="text-payload-wrapper" class="flex flex-col gap-2">
+        <div class="relative rounded-xl border border-border/80 bg-background/80 p-4 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto select-all max-h-96 overflow-y-auto">
+          <pre id="secret-output" class="whitespace-pre-wrap break-all text-foreground"></pre>
+          <div id="hidden-placeholder" class="hidden text-muted-foreground/60 italic font-sans text-xs">
+            •••••••••••••••••••••••• (Secret hidden for privacy)
+          </div>
+        </div>
+      </div>
+
+      <!-- File Payload View -->
+      <div id="file-payload-wrapper" class="hidden flex-col gap-3 p-4 rounded-xl border border-border/80 bg-muted/20">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <FileText class="w-5 h-5" />
+            </div>
+            <div class="flex flex-col">
+              <span id="decrypted-filename" class="text-sm font-medium font-mono text-foreground truncate max-w-xs sm:max-w-md"></span>
+              <span id="decrypted-filesize" class="text-xs text-muted-foreground"></span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="download-file-btn"
+            class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <FileDown class="w-4 h-4" />
+            Download
+          </button>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="pt-3 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground">
+        <a href="/" class="hover:text-foreground flex items-center gap-1 transition-colors">
+          <ArrowLeft class="w-3.5 h-3.5" />
+          Create New Secret
+        </a>
+        <span class="text-[11px] font-mono">100% In-Memory Decryption</span>
+      </div>
+    </div>
+
+    <!-- State 3: Burned / Destroyed Tombstone -->
+    <div
+      id="burned-card"
+      class="hidden w-full rounded-2xl border border-red-500/30 bg-card/70 backdrop-blur-md p-8 sm:p-10 shadow-2xl flex flex-col items-center text-center"
+    >
+      <div class="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mb-4">
+        <Flame class="w-7 h-7" />
+      </div>
+
+      <h2 class="text-xl font-bold tracking-tight text-foreground">
+        Secret Destroyed
+      </h2>
+      <p class="text-xs sm:text-sm text-muted-foreground mt-1 max-w-sm">
+        This secret was configured to burn after reading and has already been deleted, or its expiration time has elapsed.
+      </p>
+
+      <a
+        href="/"
+        class="mt-6 px-5 py-2.5 rounded-xl text-xs font-medium bg-muted/60 hover:bg-muted text-foreground border border-border/60 transition-colors"
+      >
+        Return to Warpvault
+      </a>
+    </div>
+  </main>
+</Layout>
+
+<script>
+  import { decryptPayload, unpackSecret } from "@/lib/crypto";
+
+  // Elements
+  const shieldCard = document.getElementById("shield-card");
+  const contentCard = document.getElementById("content-card");
+  const burnedCard = document.getElementById("burned-card");
+  const displayId = document.getElementById("display-id");
+  const manualKeyWrapper = document.getElementById("manual-key-wrapper");
+  const manualKeyInput = document.getElementById("manual-key-input") as HTMLInputElement;
+  const revealBtn = document.getElementById("reveal-btn") as HTMLButtonElement;
+  const revealBtnText = document.getElementById("reveal-btn-text");
+
+  const secretOutput = document.getElementById("secret-output");
+  const hiddenPlaceholder = document.getElementById("hidden-placeholder");
+  const textPayloadWrapper = document.getElementById("text-payload-wrapper");
+  const filePayloadWrapper = document.getElementById("file-payload-wrapper");
+  const decryptedFilename = document.getElementById("decrypted-filename");
+  const decryptedFilesize = document.getElementById("decrypted-filesize");
+  const downloadFileBtn = document.getElementById("download-file-btn");
+  const copySecretBtn = document.getElementById("copy-secret-btn");
+  const copySecretIcon = document.getElementById("copy-secret-icon");
+  const copySecretCheck = document.getElementById("copy-secret-check");
+  const copySecretText = document.getElementById("copy-secret-text");
+  const toggleVisibilityBtn = document.getElementById("toggle-visibility-btn");
+  const eyeShow = document.getElementById("eye-show");
+  const eyeHide = document.getElementById("eye-hide");
+  const burnStatusBadge = document.getElementById("burn-status-badge");
+
+  let secretTextContent = "";
+  let fileBlob: Blob | null = null;
+  let downloadedFileName = "secret.bin";
+  let isHidden = false;
+
+  // Extract ID and Key
+  function getSecretParams() {
+    // ID from pathname: "/v/a8X2mP9z" -> "a8X2mP9z"
+    const pathParts = window.location.pathname.replace(/\/$/, "").split("/");
+    const id = pathParts[pathParts.length - 1];
+    // Key from hash fragment: "#mykey" -> "mykey"
+    const hash = window.location.hash.replace(/^#/, "");
+    return { id, key: hash };
+  }
+
+  const { id, key } = getSecretParams();
+  if (displayId) displayId.textContent = id || "Unknown";
+
+  if (!key) {
+    manualKeyWrapper?.classList.remove("hidden");
+    manualKeyWrapper?.classList.add("flex");
+  }
+
+  // Reveal & Decrypt
+  revealBtn?.addEventListener("click", async () => {
+    const effectiveKey = key || manualKeyInput?.value?.trim();
+    if (!effectiveKey) {
+      alert("Decryption key is required. Please enter it above.");
+      manualKeyInput?.focus();
+      return;
+    }
+
+    revealBtn.disabled = true;
+    if (revealBtnText) revealBtnText.textContent = "Decrypting in memory...";
+
+    try {
+      // 1. Fetch ciphertext from API with burn claim
+      const res = await fetch(`/api/vault/${id}?burn=1`, {
+        headers: {
+          "Accept": "application/octet-stream",
+          "X-Burn": "1",
+        },
+      });
+
+      if (res.status === 410) {
+        shieldCard?.classList.add("hidden");
+        burnedCard?.classList.remove("hidden");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(`Server returned HTTP ${res.status}`);
+      }
+
+      const isBurned = res.headers.get("X-Burn-Destroyed") === "true";
+      if (burnStatusBadge) {
+        if (!isBurned) {
+          burnStatusBadge.textContent = "Stored with temporary expiration.";
+          burnStatusBadge.classList.remove("text-red-400");
+          burnStatusBadge.classList.add("text-emerald-400");
+        }
+      }
+
+      // 2. Read ciphertext bytes
+      const arrayBuf = await res.arrayBuffer();
+      const ciphertextBytes = new Uint8Array(arrayBuf);
+
+      // 3. Client-side WebCrypto Decryption
+      const decryptedBytes = await decryptPayload(ciphertextBytes, effectiveKey);
+
+      // 4. Unpack secret
+      const unpacked = unpackSecret(decryptedBytes);
+
+      if (unpacked.isFile) {
+        textPayloadWrapper?.classList.add("hidden");
+        filePayloadWrapper?.classList.remove("hidden");
+        filePayloadWrapper?.classList.add("flex");
+
+        downloadedFileName = unpacked.filename || "secret.bin";
+        if (decryptedFilename) decryptedFilename.textContent = downloadedFileName;
+        if (decryptedFilesize) {
+          const kb = (unpacked.data.length / 1024).toFixed(1);
+          decryptedFilesize.textContent = `${kb} KB`;
+        }
+        fileBlob = new Blob([unpacked.data]);
+      } else {
+        filePayloadWrapper?.classList.add("hidden");
+        textPayloadWrapper?.classList.remove("hidden");
+
+        secretTextContent = unpacked.text || "";
+        if (secretOutput) secretOutput.textContent = secretTextContent;
+      }
+
+      // Show content card
+      shieldCard?.classList.add("hidden");
+      contentCard?.classList.remove("hidden");
+    } catch (err: any) {
+      alert("Decryption error: " + err.message);
+      revealBtn.disabled = false;
+      if (revealBtnText) revealBtnText.textContent = "Try Again";
+      manualKeyWrapper?.classList.remove("hidden");
+      manualKeyWrapper?.classList.add("flex");
+    }
+  });
+
+  // Copy secret text
+  copySecretBtn?.addEventListener("click", async () => {
+    if (!secretTextContent) return;
+    await navigator.clipboard.writeText(secretTextContent);
+    copySecretIcon?.classList.add("hidden");
+    copySecretCheck?.classList.remove("hidden");
+    if (copySecretText) copySecretText.textContent = "Copied!";
+    setTimeout(() => {
+      copySecretIcon?.classList.remove("hidden");
+      copySecretCheck?.classList.add("hidden");
+      if (copySecretText) copySecretText.textContent = "Copy";
+    }, 1800);
+  });
+
+  // Download decrypted file
+  downloadFileBtn?.addEventListener("click", () => {
+    if (!fileBlob) return;
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = downloadedFileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  // Toggle text visibility
+  toggleVisibilityBtn?.addEventListener("click", () => {
+    isHidden = !isHidden;
+    if (isHidden) {
+      secretOutput?.classList.add("hidden");
+      hiddenPlaceholder?.classList.remove("hidden");
+      eyeShow?.classList.add("hidden");
+      eyeHide?.classList.remove("hidden");
+    } else {
+      secretOutput?.classList.remove("hidden");
+      hiddenPlaceholder?.classList.add("hidden");
+      eyeShow?.classList.remove("hidden");
+      eyeHide?.classList.add("hidden");
+    }
+  });
+</script>
