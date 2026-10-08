@@ -45,7 +45,7 @@ async function deriveKeyAndIV(
   const derivedBits = await crypto.subtle.deriveBits(
     {
       name: "PBKDF2",
-      salt: salt,
+      salt: salt as any,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -59,7 +59,7 @@ async function deriveKeyAndIV(
 
   const key = await crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    keyBytes as any,
     { name: "AES-CBC" },
     false,
     [usage]
@@ -93,9 +93,9 @@ export async function encryptPayload(
   const { key: aesKey, iv } = await deriveKeyAndIV(key, salt, "encrypt");
 
   const encryptedBuf = await crypto.subtle.encrypt(
-    { name: "AES-CBC", iv },
+    { name: "AES-CBC", iv: iv as any },
     aesKey,
-    dataBytes
+    dataBytes as any
   );
 
   const encryptedBytes = new Uint8Array(encryptedBuf);
@@ -144,9 +144,9 @@ export async function decryptPayload(
 
   try {
     const decryptedBuf = await crypto.subtle.decrypt(
-      { name: "AES-CBC", iv },
+      { name: "AES-CBC", iv: iv as any },
       aesKey,
-      ciphertext
+      ciphertext as any
     );
     return new Uint8Array(decryptedBuf);
   } catch (err) {

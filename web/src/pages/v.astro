@@ -300,7 +300,7 @@ import {
           const kb = (unpacked.data.length / 1024).toFixed(1);
           decryptedFilesize.textContent = `${kb} KB`;
         }
-        fileBlob = new Blob([unpacked.data]);
+        fileBlob = new Blob([unpacked.data as any]);
       } else {
         filePayloadWrapper?.classList.add("hidden");
         textPayloadWrapper?.classList.remove("hidden");
