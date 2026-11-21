@@ -1,0 +1,100 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+# install.sh downloads warpvault_v<version>_<OS>-<Arch>.tar.gz and warpvault_<version>_checksums.txt, so the
+# project name must be fixed lowercase (it is otherwise taken from the repository name's casing).
+project_name: warpvault
+
+# Snapshots are named like real releases (Version has no leading v; the archive template adds it)
+snapshot:
+  version_template: '{{ trimprefix .Tag "v" }}'
+
+dist: ./cli/dist
+
+before:
+  hooks:
+    - sh -c "cd cli && go mod tidy"
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows, freebsd, netbsd, openbsd, dragonfly]
+    goarch: [amd64, "386", arm, arm64]
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: freebsd
+        goarch: arm
+      - goos: windows
+        goarch: arm
+    goarm: ["7"]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/BioHazard786/warpvault/cli/internal/version.Version={{ .Version }}
+    main: .
+    dir: cli
+    binary: warpvault
+
+archives:
+  - formats: [tar.gz]
+    # name_template matches what install.sh expects: warpvault_v{version}_{OS}-{Arch}.{ext}
+    name_template: >-
+      {{ .ProjectName }}_v{{ .Version }}_
+      {{- if eq .Os "darwin" }}macOS
+      {{- else if eq .Os "linux" }}Linux
+      {{- else if eq .Os "windows" }}Windows
+      {{- else if eq .Os "freebsd" }}FreeBSD
+      {{- else if eq .Os "netbsd" }}NetBSD
+      {{- else if eq .Os "openbsd" }}OpenBSD
+      {{- else if eq .Os "dragonfly" }}DragonFly
+      {{- else }}{{ .Os }}{{ end }}-
+      {{- if eq .Arch "amd64" }}64bit
+      {{- else if eq .Arch "386" }}32bit
+      {{- else if eq .Arch "arm64" }}ARM64
+      {{- else if eq .Arch "arm" }}ARM
+      {{- else if eq .Arch "riscv64" }}RISCV64
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  footer: >-
+
+    ---
+
+    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+# The scoop bucket and homebrew tap live in other repositories, so they need a token that can push there.
+scoops:
+  - name: warpvault
+    description: "Zero-knowledge, client-side encrypted secret sharing from the terminal."
+    homepage: "https://github.com/BioHazard786/warpvault"
+    license: "MIT"
+    repository:
+      owner: BioHazard786
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_msg_template: "scoop: update warpvault to {{ .Tag }}"
+
+homebrew_casks:
+  - name: warpvault
+    homepage: "https://github.com/BioHazard786/warpvault"
+    description: "Zero-knowledge, client-side encrypted secret sharing from the terminal."
+    license: "MIT"
+    repository:
+      owner: BioHazard786
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    commit_msg_template: "homebrew: update warpvault to {{ .Tag }}"
+    binaries:
+      - warpvault

@@ -1,0 +1,30 @@
+# Caddy in front of Warpvault. Caddy gets the TLS certificate automatically; point your DNS A/AAAA
+# record at this server first. The app listens on 127.0.0.1:8080 (see docker-compose.yml).
+#
+#   sudo cp deploy/Caddyfile.sample /etc/caddy/Caddyfile   # then edit the domain
+#   sudo systemctl reload caddy
+vault.example.com {
+	encode zstd gzip
+
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# The app itself already sets CSP, Referrer-Policy, X-Content-Type-Options and X-Frame-Options.
+
+	# Secrets are capped at WARPVAULT_MAX_SECRET_SIZE_MB (25 by default); keep a little headroom above it.
+	request_body {
+		max_size 26MB
+	}
+
+	reverse_proxy 127.0.0.1:8080 {
+		# Overwrite anything a client sent: with WARPVAULT_TRUST_PROXY=true the app reads X-Real-IP for
+		# rate limiting, and Caddy would otherwise pass a spoofed one straight through.
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Do NOT enable access logging (`log { ... }`): /d/<token> and /api/destroy/<token> paths are
+	# credentials, and the app deliberately redacts them from its own logs. Caddy logs nothing by default.
+}
+
+# Caddy running in Docker next to the app instead? Use the service name rather than 127.0.0.1:
+#   reverse_proxy warpvault:8080
+# and drop the "127.0.0.1:" prefix from the ports line in docker-compose.yml (or remove ports entirely
+# when both containers share a network).

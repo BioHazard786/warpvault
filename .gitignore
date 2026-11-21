@@ -10,6 +10,7 @@
 # Go Binaries & Build Output
 /warpvault
 /warpvault-*
+/backend/warpvault
 *.test
 *.out
 coverage.txt
@@ -22,12 +23,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Astro Build Artifacts & Cache
-.astro/
-web/.astro/
-dist/
-web/dist/
-!web/dist/index.html
+# Build output (Vite writes into backend/web/dist, which Go embeds)
+/dist/
+backend/web/dist/*
+!backend/web/dist/.gitkeep
+*.tsbuildinfo
 
 # Application Data & SQLite Database
 /data/
@@ -35,7 +35,6 @@ web/dist/
 *.db-journal
 *.db-wal
 *.db-shm
-*.enc
 *.dat
 
 # Operating System Files
@@ -55,3 +54,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/launch.json
+
+# GoReleaser output
+cli/dist/

@@ -1,0 +1,875 @@
+#!/bin/bash
+#===============================================================================
+#
+#          FILE: install.sh
+# 
+#         USAGE: curl -fsSL https://vault.warplabs.info/install.sh | bash
+#                 OR
+#                wget -qO- https://vault.warplabs.info/install.sh | bash
+# 
+#   DESCRIPTION: Warpvault CLI Installer Script.
+#
+#                This script installs the Warpvault CLI into a specified prefix.
+#                Default prefix = /usr/local/bin
+#
+#       OPTIONS: -p, --prefix "${INSTALL_PREFIX}"
+#                      Prefix to install Warpvault CLI into. Defaults to /usr/local/bin
+#  REQUIREMENTS: bash, uname, tar/unzip, curl/wget, sudo (if not run
+#                as root), install, mktemp, sha256sum/shasum/sha256
+#
+#          BUGS: ...hopefully not.  Please report.
+#
+#         NOTES: Homepage: https://github.com/BioHazard786/warpvault
+#                  Issues: https://github.com/BioHazard786/warpvault/issues
+#                  Donate: https://github.com/sponsor/BioHazard786
+#
+#        AUTHOR: Mohd Zaid (BioHazard786),
+#
+#       CREATED: 11/21/2026
+#===============================================================================
+set -o nounset                              # Treat unset variables as an error
+
+#-------------------------------------------------------------------------------
+# DEFAULTS
+#-------------------------------------------------------------------------------
+# The Warpvault server that serves this script writes its own address in place of the placeholder, so the
+# CLI it installs already points at that server. Read from anywhere else (GitHub, a file) the placeholder
+# stays and nothing is saved. Opt out with WARPVAULT_NO_CONFIG=1.
+SERVER_URL="__WARPVAULT_SERVER__"
+DEFAULT_SERVER="https://vault.warplabs.info"
+PREFIX="${PREFIX:-}"
+ANDROID_ROOT="${ANDROID_ROOT:-}"
+
+# Termux on Android has ${PREFIX} set which already ends with '/usr'
+if [[ -n "${ANDROID_ROOT}" && -n "${PREFIX}" ]]; then
+  INSTALL_PREFIX="${PREFIX}/bin"
+else
+  INSTALL_PREFIX="/usr/local/bin"
+fi
+
+#-------------------------------------------------------------------------------
+# FUNCTIONS
+#-------------------------------------------------------------------------------
+
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  print_banner
+#   DESCRIPTION:  Prints a banner
+#    PARAMETERS:  none
+#       RETURNS:  0
+#-------------------------------------------------------------------------------
+print_banner() {
+  cat <<-'EOF'
+=================================================
+██╗    ██╗ █████╗ ██████╗ ██████╗ ██╗   ██╗ █████╗ ██╗   ██╗██╗     ████████╗
+██║    ██║██╔══██╗██╔══██╗██╔══██╗██║   ██║██╔══██╗██║   ██║██║     ╚══██╔══╝
+██║ █╗ ██║███████║██████╔╝██████╔╝██║   ██║███████║██║   ██║██║        ██║
+██║███╗██║██╔══██║██╔══██╗██╔═══╝ ╚██╗ ██╔╝██╔══██║██║   ██║██║        ██║
+╚███╔███╔╝██║  ██║██║  ██║██║      ╚████╔╝ ██║  ██║╚██████╔╝███████╗   ██║
+ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝       ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝
+                          CLI installer
+=================================================
+EOF
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  print_help
+#   DESCRIPTION:  Prints out a help message
+#    PARAMETERS:  none
+#       RETURNS:  0
+#-------------------------------------------------------------------------------
+print_help() {
+  local help_header
+  local help_message
+
+  help_header="Warpvault CLI Installer Script"
+  help_message="Usage:
+  -p INSTALL_PREFIX
+      Prefix to install Warpvault CLI into. Directory must already exist.
+      Default = /usr/local/bin ('\${PREFIX}/bin' on Termux for Android)
+  
+  -h
+      Prints this helpful message and exit."
+
+  echo "${help_header}"
+  echo ""
+  echo "${help_message}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  print_message
+#   DESCRIPTION:  Prints a message all fancy like
+#    PARAMETERS:  $1 = Message to print
+#                 $2 = Severity. info, ok, error, warn
+#       RETURNS:  Formatted Message to stdout
+#-------------------------------------------------------------------------------
+print_message() {
+  local message
+  local severity
+  local red
+  local green
+  local yellow
+  local nc
+
+  message="${1}"
+  severity="${2}"
+  red='\e[0;31m'
+  green='\e[0;32m'
+  yellow='\e[1;33m'
+  nc='\e[0m'
+
+  case "${severity}" in
+    "info" ) echo -e "${nc}${message}${nc}";;
+      "ok" ) echo -e "${green}${message}${nc}";;
+   "error" ) echo -e "${red}${message}${nc}";;
+    "warn" ) echo -e "${yellow}${message}${nc}";;
+  esac
+
+
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  debug
+#   DESCRIPTION:  Prints a message only when DEBUG is set (DEBUG=1 curl ... | bash)
+#-------------------------------------------------------------------------------
+debug() {
+  if [[ -n "${DEBUG:-}" ]]; then
+    print_message "== [DEBUG] ${1}" "info"
+  fi
+  return 0
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  make_tempdir
+#   DESCRIPTION:  Makes a temp dir using mktemp if available
+#    PARAMETERS:  $1 = Directory template
+#       RETURNS:  0 = Created temp dir. Also prints temp file path to stdout
+#                 1 = Failed to create temp dir
+#                 20 = Failed to find mktemp
+#-------------------------------------------------------------------------------
+make_tempdir() {
+  local template
+  local tempdir
+  local tempdir_rcode
+
+  template="${1}.XXXXXX"
+
+  if command -v mktemp >/dev/null 2>&1; then
+    tempdir="$(mktemp -d -t "${template}")"
+    tempdir_rcode="${?}"
+    if [[ "${tempdir_rcode}" == "0" ]]; then
+      echo "${tempdir}"
+      return 0
+    else
+      return 1
+    fi
+  else
+    return 20
+  fi
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  determine_os
+#   DESCRIPTION:  Attempts to determine host os using uname
+#    PARAMETERS:  none
+#       RETURNS:  0 = OS Detected. Also prints detected os to stdout
+#                 1 = Unknown OS
+#                 20 = 'uname' not found in path
+#-------------------------------------------------------------------------------
+determine_os() {
+  local uname_out
+
+  if command -v uname >/dev/null 2>&1; then
+    uname_out="$(uname)"
+    if [[ "${uname_out}" == "" ]]; then
+      return 1
+    else
+      echo "${uname_out}"
+      return 0
+    fi
+  else
+    return 20
+  fi
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  determine_arch
+#   DESCRIPTION:  Attempt to determine architecture of host
+#    PARAMETERS:  none
+#       RETURNS:  0 = Arch Detected. Also prints detected arch to stdout
+#                 1 = Unknown arch
+#                 20 = 'uname' not found in path
+#-------------------------------------------------------------------------------
+determine_arch() {
+  local uname_out
+
+  if command -v uname >/dev/null 2>&1; then
+    uname_out="$(uname -m)"
+    if [[ "${uname_out}" == "" ]]; then
+      return 1
+    else
+      echo "${uname_out}"
+      return 0
+    fi
+  else
+    return 20
+  fi
+}
+
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  download_file
+#   DESCRIPTION:  Downloads a file into the specified directory.  Attempts to
+#                 use curl, then wget.  If neither is found, fail.
+#    PARAMETERS:  $1 = url of file to download
+#                 $2 = location to download file into on host system
+#                 $3 = filename to save as
+#       RETURNS:  If curl or wget found, returns the return code of curl or wget
+#                 20 = Could not find curl and wget
+#-------------------------------------------------------------------------------
+download_file() {
+  local url
+  local dir
+  local filename
+  local rcode
+
+  url="${1}"
+  dir="${2}"
+  filename="${3}"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${url}" -o "${dir}/${filename}"
+    rcode="${?}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --quiet  "${url}" -O "${dir}/${filename}"
+    rcode="${?}"
+  else
+    rcode="20"
+  fi
+  
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  checksum_check
+#   DESCRIPTION:  Attempt to verify checksum of downloaded file to ensure
+#                 integrity.  Tries multiple tools before failing.
+#    PARAMETERS:  $1 = path to checksum file
+#                 $2 = location of file to check
+#                 $3 = working directory
+#       RETURNS:  0 = checksum verified
+#                 1 = checksum verification failed
+#                 20 = failed to determine tool to use to check checksum
+#                 30 = failed to change into or go back from working dir
+#-------------------------------------------------------------------------------
+checksum_check() {
+  local checksum_file
+  local file
+  local dir
+  local rcode
+  local shasum_1
+  local shasum_2
+  local shasum_c
+  local filename_to_find
+  local grep_result
+
+  checksum_file="${1}"
+  file="${2}"
+  dir="${3}"
+  filename_to_find="$(basename "${file}")"
+
+  debug "Checksum verification starting..."
+  debug "Checksum file: ${checksum_file}"
+  debug "File to check: ${file}"
+  debug "Filename to find: ${filename_to_find}"
+  debug "Working directory: ${dir}"
+
+  cd "${dir}" || return 30
+  
+  debug "Contents of checksum file:"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    debug "Using sha256sum tool"
+    ## Not all sha256sum versions seem to have --ignore-missing, so filter the checksum file
+    ## to only include the file we downloaded.
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    debug "Grep result: ${grep_result}"
+    echo "${grep_result}" > filtered_checksum.txt
+    debug "Contents of filtered_checksum.txt:"
+    shasum_c="$(sha256sum -c "filtered_checksum.txt" 2>&1)"
+    rcode="${?}"
+    debug "sha256sum output: ${shasum_c}"
+  elif command -v shasum >/dev/null 2>&1; then
+    debug "Using shasum tool"
+    ## With shasum on FreeBSD, we don't get to --ignore-missing, so filter the checksum file
+    ## to only include the file we downloaded.
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    debug "Grep result: ${grep_result}"
+    echo "${grep_result}" > filtered_checksum.txt
+    debug "Contents of filtered_checksum.txt:"
+    shasum_c="$(shasum -a 256 -c "filtered_checksum.txt" 2>&1)"
+    rcode="${?}"
+    debug "shasum output: ${shasum_c}"
+  elif command -v sha256 >/dev/null 2>&1; then
+    debug "Using sha256 tool"
+    ## With sha256 on FreeBSD, we don't get to --ignore-missing, so filter the checksum file
+    ## to only include the file we downloaded.
+    ## Also sha256 -c option seems to fail, so fall back to an if statement
+    grep_result="$(grep "${filename_to_find}" "${checksum_file}" || true)"
+    debug "Grep result: ${grep_result}"
+    echo "${grep_result}" > filtered_checksum.txt
+    shasum_1="$(sha256 -q "${file}")"
+    shasum_2="$(awk '{print $1}' filtered_checksum.txt)"
+    debug "Computed hash: ${shasum_1}"
+    debug "Expected hash: ${shasum_2}"
+    if [[ "${shasum_1}" == "${shasum_2}" ]]; then
+      rcode="0"
+    else
+      rcode="1"
+    fi
+    shasum_c="Expected: ${shasum_1}, Got: ${shasum_2}"
+  else
+    return 20
+  fi
+  cd - >/dev/null 2>&1 || return 30
+  
+  if [[ "${rcode}" -gt "0" ]]; then
+    echo "${shasum_c}"
+  fi
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  extract_file
+#   DESCRIPTION:  Extracts a file into a location.  Attempts to determine which
+#                 tool to use by checking file extension.
+#    PARAMETERS:  $1 = file to extract
+#                 $2 = location to extract file into
+#                 $3 = extension
+#       RETURNS:  Return code of the tool used to extract the file
+#                 20 = Failed to determine which tool to use
+#                 30 = Failed to find tool in path
+#-------------------------------------------------------------------------------
+extract_file() {
+  local file
+  local dir
+  local ext
+  local rcode
+
+  file="${1}"
+  dir="${2}"
+  ext="${3}"
+
+  case "${ext}" in
+       "zip" ) if command -v unzip >/dev/null 2>&1; then
+                 unzip "${file}" -d "${dir}"
+                 rcode="${?}"
+               else
+                 rcode="30"
+               fi
+               ;;
+    "tar.gz" ) if command -v tar >/dev/null 2>&1; then
+                 tar -xf "${file}" -C "${dir}"
+                 rcode="${?}"
+               else
+                 rcode="31"
+               fi
+               ;;
+           * ) rcode="20";;
+  esac
+
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  create_prefix
+#   DESCRIPTION:  Creates the install prefix (and any parent directories). If
+#                 EUID not 0, then attempt to use sudo.
+#    PARAMETERS:  $1 = prefix
+#       RETURNS:  Return code of the tool used to make the directory
+#                 0 = Created the directory
+#                 >0 = Failed to create directory  
+#                 20 = Could not find mkdir command
+#                 21 = Could not find sudo command
+#-------------------------------------------------------------------------------
+create_prefix() {
+  local prefix
+  local rcode
+
+  prefix="${1}"
+
+  if command -v mkdir >/dev/null 2>&1; then
+    if [[ "${EUID}" == "0" ]]; then
+      mkdir -p "${prefix}"
+      rcode="${?}"
+    else
+      if command -v sudo >/dev/null 2>&1; then
+        sudo mkdir -p "${prefix}"
+        rcode="${?}"
+      else
+        rcode="21"
+      fi
+    fi
+  else
+    rcode="20"
+  fi
+
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  install_file_freebsd
+#   DESCRIPTION:  Installs a file into a location using 'install'.  If EUID not
+#                 0, then attempt to use sudo.
+#    PARAMETERS:  $1 = file to install
+#                 $2 = location to install file into
+#       RETURNS:  0 = File Installed
+#                 1 = File not installed
+#                 20 = Could not find install command
+#                 21 = Could not find sudo command
+#-------------------------------------------------------------------------------
+install_file_freebsd() {
+  local file
+  local prefix
+  local rcode
+
+  file="${1}"
+  prefix="${2}"
+
+  if command -v install >/dev/null 2>&1; then
+    if [[ "${EUID}" == "0" ]]; then
+      install -C -b -B '_old' -m 755 "${file}" "${prefix}"
+      rcode="${?}"
+    else
+      if command -v sudo >/dev/null 2>&1; then
+        sudo install -C -b -B '_old' -m 755 "${file}" "${prefix}"
+        rcode="${?}"
+      else
+        rcode="21"
+      fi
+    fi
+  else
+    rcode="20"
+  fi
+
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  install_file_linux
+#   DESCRIPTION:  Installs a file into a location using 'install'.  If EUID not
+#                 0, then attempt to use sudo (unless on android).
+#    PARAMETERS:  $1 = file to install
+#                 $2 = location to install file into
+#       RETURNS:  0 = File Installed
+#                 1 = File not installed
+#                 20 = Could not find install command
+#                 21 = Could not find sudo command
+#-------------------------------------------------------------------------------
+install_file_linux() {
+  local file
+  local prefix
+  local rcode
+
+  file="${1}"
+  prefix="${2}"
+
+  if command -v install >/dev/null 2>&1; then
+    if [[ "${EUID}" == "0" ]]; then
+      install -C -b -S '_old' -m 755 -t "${prefix}" "${file}"
+      rcode="${?}"
+    else
+      if command -v sudo >/dev/null 2>&1; then
+        sudo install -C -b -S '_old' -m 755 "${file}" "${prefix}"
+        rcode="${?}"
+      elif [[ "${ANDROID_ROOT}" != "" ]]; then
+        install -C -b -S '_old' -m 755 -t "${prefix}" "${file}"
+        rcode="${?}"
+      else
+        rcode="21"
+      fi
+    fi
+  else
+    rcode="20"
+  fi
+
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  install_file_cygwin
+#   DESCRIPTION:  Installs a file into a location using 'install'.  If EUID not
+#                 0, then attempt to use sudo.
+#                 Not really 100% sure this is how to install warpvault in cygwin.
+#    PARAMETERS:  $1 = file to install
+#                 $2 = location to install file into
+#       RETURNS:  0 = File Installed
+#                 20 = Could not find install command
+#                 21 = Could not find sudo command
+#-------------------------------------------------------------------------------
+install_file_cygwin() {
+  local file
+  local prefix
+  local rcode
+
+  file="${1}"
+  prefix="${2}"
+
+  if command -v install >/dev/null 2>&1; then
+    if [[ "${EUID}" == "0" ]]; then
+      install -m 755 "${prefix}" "${file}"
+      rcode="${?}"
+    else
+      if command -v sudo >/dev/null 2>&1; then
+        sudo install -m 755 "${file}" "${prefix}"
+        rcode="${?}"
+      else
+        rcode="21"
+      fi
+    fi
+  else
+    rcode="20"
+  fi
+
+  return "${rcode}"
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  get_latest_version
+#   DESCRIPTION:  Fetch the latest release version from GitHub API
+#       RETURNS:  0 = Version fetched. Also prints version to stdout
+#                 1 = Failed to fetch version
+#                 20 = curl/wget not found
+#-------------------------------------------------------------------------------
+get_latest_version() {
+  local api_url="https://api.github.com/repos/BioHazard786/warpvault/releases/latest"
+  local web_url="https://github.com/BioHazard786/warpvault/releases/latest"
+  local response
+  local version
+  local final_url
+
+  # explicit override: WARPVAULT_VERSION=0.1.0 (a leading v is accepted)
+  if [[ -n "${WARPVAULT_VERSION:-}" ]]; then
+    echo "${WARPVAULT_VERSION#v}"
+    return 0
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    response="$(curl -fsSL "${api_url}" 2>/dev/null)"
+  elif command -v wget >/dev/null 2>&1; then
+    response="$(wget -qO- "${api_url}" 2>/dev/null)"
+  else
+    return 20 # Missing dependencies
+  fi
+
+  # Find "tag_name", allow optional spaces/colon, capture content inside quotes
+  version="$(echo "${response}" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4 | sed 's/^v//')"
+
+  # The API is rate limited (60/h per IP); the releases/latest redirect is not, and ends in the tag name.
+  if [[ -z "${version}" ]] && command -v curl >/dev/null 2>&1; then
+    final_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "${web_url}" 2>/dev/null)"
+    version="${final_url##*/}"
+    version="${version#v}"
+    [[ "${version}" == "latest" ]] && version=""
+  fi
+
+  if [[ -z "${version}" ]]; then
+    return 1 # Failed to find version
+  fi
+
+  echo "${version}"
+  return 0
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  save_server
+#   DESCRIPTION:  Saves the server that served this script as the CLI's default, once, so a self-hosted
+#                 server never needs --server or WARPVAULT_SERVER. Failure is only a warning.
+#    PARAMETERS:  $1 = install prefix
+#       RETURNS:  0 always
+#-------------------------------------------------------------------------------
+save_server() {
+  local bin="${1}/warpvault"
+
+  [[ "${SERVER_URL}" == "__"*"__" ]] && return 0      # not served by a Warpvault server
+  [[ "${SERVER_URL}" == "${DEFAULT_SERVER}" ]] && return 0
+  [[ -n "${WARPVAULT_NO_CONFIG:-}" ]] && return 0
+
+  # `curl | sudo bash` must save into the invoking user's config, not root's
+  if [[ "${EUID}" == "0" && -n "${SUDO_USER:-}" ]] && command -v sudo >/dev/null 2>&1; then
+    sudo -u "${SUDO_USER}" -H "${bin}" config set server "${SERVER_URL}" >/dev/null
+  else
+    "${bin}" config set server "${SERVER_URL}" >/dev/null
+  fi
+  # shellcheck disable=SC2181  # the command differs by branch above
+  if [[ "${?}" == "0" ]]; then
+    print_message "== Default server set to ${SERVER_URL}" "ok"
+    print_message "== Change it later with: warpvault config set server <url>" "info"
+  else
+    print_message "== Could not save the default server. Set it yourself: warpvault config set server ${SERVER_URL}" "warn"
+  fi
+  return 0
+}
+
+#---  FUNCTION  ----------------------------------------------------------------
+#          NAME:  main
+#   DESCRIPTION:  Put it all together in a logical way
+#                 ...at least that is the hope...
+#    PARAMETERS:  1 = prefix
+#       RETURNS:  0 = All good
+#                 1 = Something done broke
+#-------------------------------------------------------------------------------
+main() {
+  local prefix
+  local tmpdir
+  local tmpdir_rcode
+  local warpvault_arch
+  local warpvault_arch_rcode
+  local warpvault_os
+  local warpvault_os_rcode
+  local warpvault_base_url
+  local warpvault_url
+  local warpvault_file
+  local warpvault_checksum_file
+  local warpvault_bin_name
+  local warpvault_version
+  local warpvault_dl_ext
+  local download_file_rcode
+  local download_checksum_file_rcode
+  local checksum_check_rcode
+  local extract_file_rcode
+  local install_file_rcode
+  local create_prefix_rcode
+
+  warpvault_bin_name="warpvault"
+  warpvault_dl_ext="tar.gz"
+  warpvault_base_url="https://github.com/BioHazard786/warpvault/releases/download"
+  prefix="${1}"
+
+  print_banner
+  print_message "== Fetching latest Warpvault version..." "info"
+  warpvault_version="$(get_latest_version)"
+  if [[ $? -eq 0 ]]; then
+    print_message "== Latest version detected: ${warpvault_version}" "ok"
+  else
+    print_message "== Could not determine the latest version (offline, or GitHub unreachable)." "error"
+    print_message "== Set it yourself and retry: WARPVAULT_VERSION=x.y.z bash install.sh" "error"
+    exit 1
+  fi
+  
+  print_message "== Install prefix set to ${prefix}" "info"
+  
+  tmpdir="$(make_tempdir "${warpvault_bin_name}")"
+  tmpdir_rcode="${?}"
+  if [[ "${tmpdir_rcode}" == "0" ]]; then
+    debug "Created temp dir at ${tmpdir}"
+    # shellcheck disable=SC2064  # expand now: tmpdir is a local that is gone when the trap fires
+    trap "rm -rf '${tmpdir}'" EXIT
+  elif [[ "${tmpdir_rcode}" == "1" ]]; then
+    print_message "== Failed to create a temp dir" "error"
+    exit 1
+  else
+    print_message "== 'mktemp' not found in path. Is it installed?" "error"
+    exit 1
+  fi
+
+  warpvault_arch="$(determine_arch)"
+  warpvault_arch_rcode="${?}"
+  if [[ "${warpvault_arch_rcode}" == "0" ]]; then
+    print_message "== Architecture detected as ${warpvault_arch}" "info"
+  elif [[ "${warpvault_arch_rcode}" == "1" ]]; then
+    print_message "== Architecture not detected" "error"
+    exit 1
+  else
+    print_message "== 'uname' not found in path. Is it installed?" "error"
+    exit 1
+  fi
+
+  warpvault_os="$(determine_os)"
+  warpvault_os_rcode="${?}"
+  if [[ "${warpvault_os_rcode}" == "0" ]]; then
+    print_message "== OS detected as ${warpvault_os}" "info"
+  elif [[ "${warpvault_os_rcode}" == "1" ]]; then
+    print_message "== OS not detected" "error"
+    exit 1
+  else
+    print_message "== 'uname' not found in path. Is it installed?" "error"
+    exit 1
+  fi
+
+  case "${warpvault_os}" in
+     "Darwin" ) warpvault_os="macOS";;
+    *"BusyBox"* )
+        warpvault_os="Linux"
+        ;;
+    "MINGW"* ) warpvault_os="Windows";
+                warpvault_dl_ext="zip";;
+    "CYGWIN"* ) warpvault_os="Windows";
+                warpvault_dl_ext="zip";
+                print_message "== Cygwin is currently unsupported." "error";
+                exit 1;;
+  esac
+
+  case "${warpvault_arch}" in
+     "x86_64" ) warpvault_arch="64bit";;
+      "amd64" ) warpvault_arch="64bit";;
+    "aarch64" ) warpvault_arch="ARM64";;
+      "arm64" ) warpvault_arch="ARM64";;
+     "armv7l" ) warpvault_arch="ARM";;
+     "armv8l" ) warpvault_arch="ARM";;
+     "armv9l" ) warpvault_arch="ARM";;
+       "i686" ) warpvault_arch="32bit";;
+    "riscv64" ) warpvault_arch="RISCV64";;
+            * ) warpvault_arch="unknown";;
+  esac
+
+  warpvault_file="${warpvault_bin_name}_v${warpvault_version}_${warpvault_os}-${warpvault_arch}.${warpvault_dl_ext}"
+  warpvault_checksum_file="${warpvault_bin_name}_${warpvault_version}_checksums.txt"
+  warpvault_url="${warpvault_base_url}/v${warpvault_version}/${warpvault_file}"
+  warpvault_checksum_url="${warpvault_base_url}/v${warpvault_version}/${warpvault_checksum_file}"
+  
+  print_message "== Constructed URL: ${warpvault_url}" "info"
+  print_message "== Looking for file: ${warpvault_file}" "info"
+  
+  download_file "${warpvault_url}" "${tmpdir}" "${warpvault_file}"
+  download_file_rcode="${?}"
+  if [[ "${download_file_rcode}" == "0" ]]; then
+    print_message "== Downloaded Warpvault CLI archive into ${tmpdir}" "info"
+  elif [[ "${download_file_rcode}" == "1" ]]; then
+    print_message "== Failed to download Warpvault CLI archive" "error"
+    exit 1
+  elif [[ "${download_file_rcode}" == "20" ]]; then
+    print_message "== Failed to locate curl or wget" "error"
+    exit 1
+  else
+    print_message "== Return code of download tool returned an unexpected value of ${download_file_rcode}" "error"
+    exit 1
+  fi
+
+  download_file "${warpvault_checksum_url}" "${tmpdir}" "${warpvault_checksum_file}"
+  download_checksum_file_rcode="${?}"
+  if [[ "${download_checksum_file_rcode}" == "0" ]]; then
+    print_message "== Downloaded Warpvault CLI checksums file into ${tmpdir}" "info"
+  elif [[ "${download_checksum_file_rcode}" == "1" ]]; then
+    print_message "== Failed to download Warpvault CLI checksums" "error"
+    exit 1
+  elif [[ "${download_checksum_file_rcode}" == "20" ]]; then
+    print_message "== Failed to locate curl or wget" "error"
+    exit 1
+  else
+    print_message "== Return code of download tool returned an unexpected value of ${download_checksum_file_rcode}" "error"
+    exit 1
+  fi
+
+  checksum_check "${tmpdir}/${warpvault_checksum_file}" "${tmpdir}/${warpvault_file}" "${tmpdir}"
+  checksum_check_rcode="${?}"
+  if [[ "${checksum_check_rcode}" == "0" ]]; then
+    print_message "== Checksum of ${tmpdir}/${warpvault_file} verified" "ok"
+  elif [[ "${checksum_check_rcode}" == "1" ]]; then
+    print_message "== Failed to verify checksum of ${tmpdir}/${warpvault_file}" "error"
+    exit 1
+  elif [[ "${checksum_check_rcode}" == "20" ]]; then
+    print_message "== Failed to find tool to verify sha256 sums" "error"
+    exit 1
+  elif [[ "${checksum_check_rcode}" == "30" ]]; then
+    print_message "== Failed to change into working directory ${tmpdir}" "error"
+    exit 1
+  else
+    print_message "== Unknown return code returned while checking checksum of ${tmpdir}/${warpvault_file}. Returned ${checksum_check_rcode}" "error"
+    exit 1
+  fi
+
+  extract_file "${tmpdir}/${warpvault_file}" "${tmpdir}/" "${warpvault_dl_ext}"
+  extract_file_rcode="${?}"
+  if [[ "${extract_file_rcode}" == "0" ]]; then
+    print_message "== Extracted ${warpvault_file} to ${tmpdir}/" "info"
+  elif [[ "${extract_file_rcode}" == "1" ]]; then
+    print_message "== Failed to extract ${warpvault_file}" "error"
+    exit 1
+  elif [[ "${extract_file_rcode}" == "20" ]]; then
+    print_message "== Failed to determine which extraction tool to use" "error"
+    exit 1
+  elif [[ "${extract_file_rcode}" == "30" ]]; then
+    print_message "== Failed to find 'unzip' in path" "error"
+    exit 1
+  elif [[ "${extract_file_rcode}" == "31" ]]; then
+    print_message "== Failed to find 'tar' in path" "error"
+    exit 1
+  else
+    print_message "== Unknown error returned from extraction attempt" "error"
+    exit 1
+  fi
+
+  if [[ ! -d "${prefix}" ]]; then
+    create_prefix "${prefix}"
+    create_prefix_rcode="${?}"
+    if [[ "${create_prefix_rcode}" == "0" ]]; then
+      print_message "== Created install prefix at ${prefix}" "info"
+    elif [[ "${create_prefix_rcode}" == "20" ]]; then
+      print_message "== Failed to find mkdir in path" "error"
+      exit 1
+    elif [[ "${create_prefix_rcode}" == "21" ]]; then
+      print_message "== Failed to find sudo in path" "error"
+      exit 1
+    else
+      print_message "== Failed to create the install prefix: ${prefix}" "error"
+      exit 1
+    fi
+  else
+    print_message "== Install prefix already exists. No need to create it." "info"
+  fi
+
+  case "${warpvault_os}" in
+    "Linux" ) install_file_linux "${tmpdir}/${warpvault_bin_name}" "${prefix}/";
+              install_file_rcode="${?}";;
+  "FreeBSD" ) install_file_freebsd "${tmpdir}/${warpvault_bin_name}" "${prefix}/";
+              install_file_rcode="${?}";;
+    "macOS" ) install_file_freebsd "${tmpdir}/${warpvault_bin_name}" "${prefix}/";
+              install_file_rcode="${?}";;
+  "Windows" ) install_file_cygwin "${tmpdir}/${warpvault_bin_name}" "${prefix}/";
+              install_file_rcode="${?}";;
+  esac
+
+  if [[ "${install_file_rcode}" == "0" ]] ; then
+    print_message "== Installed ${warpvault_bin_name} to ${prefix}/" "ok"
+  elif [[ "${install_file_rcode}" == "1" ]]; then
+    print_message "== Failed to install ${warpvault_bin_name}" "error"
+    exit 1
+  elif [[ "${install_file_rcode}" == "20" ]]; then
+    print_message "== Failed to locate 'install' command" "error"
+    exit 1
+  elif [[ "${install_file_rcode}" == "21" ]]; then
+    print_message "== Failed to locate 'sudo' command" "error"
+    exit 1
+  else
+    print_message "== Install attempt returned an unexpected value of ${install_file_rcode}" "error"
+    exit 1
+  fi
+
+  save_server "${prefix}"
+
+  print_message "== Installation complete" "ok"
+  
+  exit 0
+}
+
+#-------------------------------------------------------------------------------
+#  ARGUMENT PARSING
+#-------------------------------------------------------------------------------
+OPTS="hp:"
+while getopts "${OPTS}" optchar; do
+  case "${optchar}" in
+    'h' ) print_help
+          exit 0
+          ;;
+    'p' ) INSTALL_PREFIX="${OPTARG}"
+          ;;
+     /? ) print_message "Unknown option ${OPTARG}" "warn"
+          ;;
+  esac
+done
+
+#-------------------------------------------------------------------------------
+# CALL MAIN
+#-------------------------------------------------------------------------------
+main "${INSTALL_PREFIX}"

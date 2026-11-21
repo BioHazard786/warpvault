@@ -1,14 +1,18 @@
 services:
   warpvault:
+    # WARPVAULT_VERSION picks the image tag (default latest), e.g. WARPVAULT_VERSION=v1.0.0
+    image: ghcr.io/biohazard786/warpvault:${WARPVAULT_VERSION:-latest}
+    # `docker compose up -d --build` builds from source instead of pulling; the version shown in the app is then
+    # "dev" unless WARPVAULT_VERSION is set.
     build:
       context: .
-      dockerfile: Dockerfile
       args:
-        WARPVAULT_MAX_SECRET_SIZE_MB: ${WARPVAULT_MAX_SECRET_SIZE_MB:-25}
+        WARPVAULT_VERSION: ${WARPVAULT_VERSION:-dev}
     container_name: warpvault
     restart: unless-stopped
     ports:
-      - "${WARPVAULT_PORT:-8080}:8080"
+      # localhost only: put Caddy/Nginx in front. Use "${WARPVAULT_PORT:-8080}:8080" to publish on all interfaces.
+      - "127.0.0.1:${WARPVAULT_PORT:-8080}:8080"
     env_file:
       - path: .env
         required: false
@@ -19,6 +23,12 @@ services:
       - WARPVAULT_DB_PATH=/data/warpvault.db
     volumes:
       - warpvault_data:/data
+    # Everything the app writes lives in /data, so the rest of the filesystem can be read-only.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   warpvault_data:
