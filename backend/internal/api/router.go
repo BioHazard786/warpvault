@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"regexp"
 	"strings"
@@ -82,6 +83,11 @@ func serveIndex(w http.ResponseWriter, staticFS fs.FS, status int) bool {
 	w.WriteHeader(status)
 	_, _ = w.Write(page)
 	return true
+}
+
+func init() {
+	// Go's mime table has no entry for .webmanifest, so the file server would send text/plain.
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 }
 
 const installPlaceholder = "__WARPVAULT_SERVER__"

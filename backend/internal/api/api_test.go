@@ -359,3 +359,14 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestWebManifestContentType(t *testing.T) {
+	static := fstest.MapFS{"site.webmanifest": {Data: []byte("{}")}, "index.html": {Data: []byte("<html>")}}
+	router, _, _, cleanup := setupTestRouterWith(t, "", static, "http://localhost:8080")
+	defer cleanup()
+
+	rec := do(router, "GET", "/site.webmanifest", nil)
+	if got := rec.Header().Get("Content-Type"); rec.Code != http.StatusOK || !strings.HasPrefix(got, "application/manifest+json") {
+		t.Fatalf("expected application/manifest+json, got %d %q", rec.Code, got)
+	}
+}
