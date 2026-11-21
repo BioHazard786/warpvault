@@ -1,6 +1,6 @@
 services:
   warpvault:
-    # WARPVAULT_VERSION picks the image tag (default latest), e.g. WARPVAULT_VERSION=v1.0.0
+    # WARPVAULT_VERSION picks the image tag (default latest), e.g. WARPVAULT_VERSION=v1.0.1
     image: ghcr.io/biohazard786/warpvault:${WARPVAULT_VERSION:-latest}
     # `docker compose up -d --build` builds from source instead of pulling; the version shown in the app is then
     # "dev" unless WARPVAULT_VERSION is set.
